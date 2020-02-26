@@ -8,7 +8,7 @@ import torchvision.transforms as transforms
 import numpy as np
 import matplotlib.pyplot as plt
 
-from models import VAE, VAELoss
+from models import VAE, VAELoss, ConvVAE
 
 # Load and store the MNIST train data 
 transform = transforms.Compose([
@@ -19,7 +19,7 @@ transform = transforms.Compose([
 trainset = torchvision.datasets.MNIST(root='./data', train=True, download=True, transform=transform)
 trainloader = torch.utils.data.DataLoader(trainset, batch_size=200, shuffle=True)
 
-vae = VAE(input_size=28*28)
+vae = ConvVAE(latent_size=10)
 criterion = VAELoss()
 optimizer = optim.Adam(vae.parameters(), lr=0.001)
 
@@ -34,25 +34,29 @@ for e in range(epochs):
 
         optimizer.zero_grad()
 
-        x, x_hat, mu, logvar = vae(x)
+        x, x_hat, mu, logvar, _ = vae(x)
         loss = criterion(x, x_hat, mu, logvar)
         loss.backward()
         optimizer.step()
 
         running_loss += loss.item()
-        
-        if idx % 50 == 49:
-            print('[%d, %5d] loss: %.3f' %
-                  (e + 1, idx + 1, running_loss / 200))
-            running_loss = 0.0
 
-    x_hat = vae.decode(z_test)
-    x_hat = x_hat.detach().numpy()
-    x_hat = np.reshape(x_hat, (9, 1, 28, 28))
-    plt.figure()
-    for i in range(9):
-        plt.subplot(3, 3, i+1)
-        plt.imshow(x_hat[i], cmap='gray')
-    plt.show()
+        print(loss.item())
+
+        if idx % 50 == 49:
+            # setup z for decoder network input.
+            z_test = np.random.normal(size=(60, 10))
+            z_test = torch.from_numpy(z_test).float()
+
+            x_hat = vae.decode(z_test)
+            # reshape into old image format 
+            x_hat = x_hat.view((-1, 1, 28, 28))
+
+            # create and visualize grid
+            grid = torchvision.utils.make_grid(x_hat, nrow=10, padding=5)
+            plt.figure(figsize=(15, 6))
+            plt.imshow(grid.permute(1, 2, 0).detach().cpu().numpy())
+            plt.show()
+
         
 
