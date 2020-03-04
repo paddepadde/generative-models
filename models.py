@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn 
 import torch.nn.functional as F
 
-
 class VAE(nn.Module):
 
     def __init__(self, input_size, hidden_size=64, latent_size=6):
@@ -125,3 +124,142 @@ class ConvVAE(nn.Module):
         x_hat = z.view(-1, 1, 28, 28)
 
         return x_hat
+
+class Generator2(nn.Module):
+    def __init__(self, noise_size):
+        super(Generator2, self).__init__()
+
+        self.init_size = 32 // 4
+        self.l1 = nn.Sequential(nn.Linear(noise_size, 128 * self.init_size ** 2))
+
+        self.conv_blocks = nn.Sequential(
+            nn.BatchNorm2d(128),
+            nn.Upsample(scale_factor=2),
+            nn.Conv2d(128, 128, 3, stride=1, padding=1),
+            nn.BatchNorm2d(128, 0.8),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Upsample(scale_factor=2),
+            nn.Conv2d(128, 64, 3, stride=1, padding=1),
+            nn.BatchNorm2d(64, 0.8),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(64, 1, 3, stride=1, padding=1),
+            nn.Tanh(),
+        )
+
+    def forward(self, z):
+        out = self.l1(z)
+        out = out.view(out.shape[0], 128, self.init_size, self.init_size)
+        img = self.conv_blocks(out)
+        return img
+
+
+class Generator(nn.Module):
+
+    def __init__(self, noise_size=100):
+        super(Generator, self).__init__()
+        
+        self.init_size = 32 // 4
+        self.fc_1 = nn.Linear(noise_size, 128 * self.init_size ** 2)
+        
+        self.batch_norm0 = nn.BatchNorm2d(128)
+        self.upsample0 = nn.Upsample(scale_factor=2)
+
+        self.conv1 = nn.Conv2d(128, 128, 3, 1, 1)
+        self.batch_norm1 = nn.BatchNorm2d(128)
+        self.leaky_relu = nn.LeakyReLU(0.2, inplace=True)
+
+        self.conv2 = nn.Conv2d(128, 64, 3, 1, 1)
+        self.batch_norm2 = nn.BatchNorm2d(64)
+        
+        self.conv3 = nn.Conv2d(64, 1, 3, 1, 1)
+        self.tanh = nn.Tanh()
+        
+    def forward(self, x):
+        x = self.fc_1(x)
+        x = x.view(x.shape[0], 128, self.init_size, self.init_size)
+
+        x = self.batch_norm0(x)
+        x = self.upsample0(x)
+
+        x = self.leaky_relu(self.batch_norm1(self.conv1(x)))
+        x = self.upsample0(x)
+
+        x = self.leaky_relu(self.batch_norm2(self.conv2(x)))
+        x = self.tanh(self.conv3(x))
+        return x
+
+class Discriminator(nn.Module):
+
+    def __init__(self):
+        super(Discriminator, self).__init__()
+       
+        self.conv1 = nn.Conv2d(1, 16, 3, 2, 1, bias=False)
+        self.leaky_relu = nn.LeakyReLU(0.2, inplace=True)
+        self.dropout = nn.Dropout2d(0.25)
+
+        self.conv2 = nn.Conv2d(16, 32, 3, 2, 1, bias=False)
+        self.batch_norm2 = nn.BatchNorm2d(32)
+
+        self.conv3 = nn.Conv2d(32, 64, 3, 2, 1, bias=False)
+        self.batch_norm3 = nn.BatchNorm2d(64)
+
+        self.conv4 = nn.Conv2d(64, 128, 3, 2, 1, bias=False)
+        self.batch_norm4 = nn.BatchNorm2d(128)
+
+        self.downsampled_size = 32 // 2 ** 4
+        self.fc1 = nn.Linear(128 * self.downsampled_size ** 2, 1)
+        self.sogmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.leaky_relu(x)
+        x = self.dropout(x)
+
+        x = self.conv2(x)
+        x = self.leaky_relu(x)
+        x = self.dropout(x)
+        x = self.batch_norm2(x)
+
+        x = self.conv3(x)
+        x = self.leaky_relu(x)
+        x = self.dropout(x)
+        x = self.batch_norm3(x)
+
+        x = self.conv4(x)
+        x = self.leaky_relu(x)
+        x = self.dropout(x)
+        x = self.batch_norm4(x)
+
+        x = torch.flatten(x, start_dim=1)
+        x = self.fc1(x)
+        x = self.sogmoid(x)
+        return x
+
+
+class Discriminator2(nn.Module):
+    def __init__(self):
+        super(Discriminator2, self).__init__()
+
+        def discriminator_block(in_filters, out_filters, bn=True):
+            block = [nn.Conv2d(in_filters, out_filters, 3, 2, 1), nn.LeakyReLU(0.2, inplace=True), nn.Dropout2d(0.25)]
+            if bn:
+                block.append(nn.BatchNorm2d(out_filters, 0.8))
+            return block
+
+        self.model = nn.Sequential(
+            *discriminator_block(1, 16, bn=False),
+            *discriminator_block(16, 32),
+            *discriminator_block(32, 64),
+            *discriminator_block(64, 128),
+        )
+
+        # The height and width of downsampled image
+        ds_size = 32 // 2 ** 4
+        self.adv_layer = nn.Sequential(nn.Linear(128 * ds_size ** 2, 1), nn.Sigmoid())
+
+    def forward(self, img):
+        out = self.model(img)
+        out = out.view(out.shape[0], -1)
+        validity = self.adv_layer(out)
+
+        return validity
