@@ -100,7 +100,6 @@ class Generator(nn.Module):
         self.deconv5 = nn.ConvTranspose2d(64, 3, kernel_size=(4, 4), stride=(2, 2), padding=(1, 1))
         
         # image size -> (?, 3, 64, 64)
-        # TODO: change to functional
         self.tanh = nn.Tanh()
 
     def forward(self, x):
